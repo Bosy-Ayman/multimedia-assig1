@@ -60,7 +60,7 @@ streamlit run app.py
 
 ---
 
-## 🧠 Architecture & Tech Stack
+##  Architecture & Tech Stack
 
 * **Frontend Interface:** [Streamlit](https://streamlit.io/)
 * **LLM Generator:** `Qwen/Qwen2.5-0.5B-Instruct` (Run locally via HuggingFace Transformers)
@@ -74,7 +74,6 @@ streamlit run app.py
 
 ```text
 ├── app.py                 # Main Streamlit application and RAG pipeline
-├── evaluate.py            # Automated benchmark testing suite (Evaluation Deliverable)
 ├── requirements.txt       # Python package dependencies
 ├── README.md              # Project documentation
 └── sample_data/           # Directory containing test PDFs for multi-modal evaluation
