@@ -3,7 +3,6 @@ import gc
 import tempfile
 import time
 import warnings
-import shutil
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -11,15 +10,13 @@ import torch
 import fitz  # PyMuPDF
 from PIL import Image
 import io
-import pytesseract # Added for Image/Chart OCR
+import pytesseract
 
-# ========================== WINERROR 32 POPPLER FIX ==========================
+# ========================== POPPLER & PDF2IMAGE SETUP ==========================
 import pdf2image
+from pdf2image.exceptions import PDFInfoNotInstalledError
 
-POPPLER_PATH = r"C:\poppler-25.12.0\Library\bin"
-if POPPLER_PATH not in os.environ.get("PATH", ""):
-    os.environ["PATH"] += os.pathsep + POPPLER_PATH
-
+# Create a safe temp directory for pdf2image if needed on Windows
 if "safe_poppler_temp" not in st.session_state:
     st.session_state.safe_poppler_temp = tempfile.mkdtemp()
 
@@ -35,6 +32,7 @@ pdf2image.convert_from_path = safe_convert_from_path
 import faiss
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from sentence_transformers import SentenceTransformer
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 warnings.filterwarnings("ignore")
 
@@ -78,7 +76,7 @@ def reset_all_documents():
     st.session_state.pdf_files = []
     st.session_state.indexed = False
     st.session_state.faiss_index = None
-    st.session_state.page_mapping = []
+    st.session_state.chunk_mapping = [] # Renamed from page_mapping to reflect chunking
     clear_memory()
 
 def remove_pdf(file_id):
@@ -107,7 +105,7 @@ def remove_pdf(file_id):
     
     st.session_state.indexed = False
     st.session_state.faiss_index = None
-    st.session_state.page_mapping = []
+    st.session_state.chunk_mapping = []
     clear_memory()
 
 # ====================== LOAD MODELS ======================
@@ -140,19 +138,18 @@ if embedding_model is None or tokenizer is None or llm is None:
     st.stop()
 
 # ====================== SEMANTIC EMBEDDING ======================
-def embed_page_text(text):
+def embed_text_chunk(text):
     if len(text.strip()) == 0:
-        text = "[EMPTY PAGE]"
-    text = text[:3000] # Increased char limit to accommodate tables/OCR
+        text = "[EMPTY CHUNK]"
     return embedding_model.encode(text, convert_to_numpy=True).astype('float32')
 
 def embed_query(text):
     return embedding_model.encode(text, convert_to_numpy=True).astype('float32')
 
 # ====================== SESSION STATE ======================
-for key in ["pdf_files", "indexed", "doc_cache", "faiss_index", "page_mapping"]:
+for key in ["pdf_files", "indexed", "doc_cache", "faiss_index", "chunk_mapping"]:
     if key not in st.session_state:
-        if key in ["pdf_files", "page_mapping"]:
+        if key in ["pdf_files", "chunk_mapping"]:
             st.session_state[key] = []
         elif key == "doc_cache":
             st.session_state[key] = {}
@@ -161,7 +158,7 @@ for key in ["pdf_files", "indexed", "doc_cache", "faiss_index", "page_mapping"]:
 
 # ====================== UPLOAD ======================
 st.markdown("## Step 1: Upload PDFs")
-uploaded_file = st.file_uploader("📄 Upload PDF", type=["pdf"], accept_multiple_files=False)
+uploaded_file = st.file_uploader(" Upload PDF", type=["pdf"], accept_multiple_files=False)
 
 if uploaded_file:
     file_exists = any(pdf["name"] == uploaded_file.name for pdf in st.session_state.pdf_files)
@@ -187,7 +184,7 @@ if uploaded_file:
                     "page_count": page_count
                 })
                 st.session_state.indexed = False
-                st.success(f"✅ Added: {uploaded_file.name} ({page_count} pages)")
+                st.success(f" Added: {uploaded_file.name} ({page_count} pages)")
                 st.rerun()
         except Exception as e:
             st.error(f"Failed to upload: {e}")
@@ -195,7 +192,7 @@ if uploaded_file:
         st.info(f" {uploaded_file.name} already uploaded")
 
 # ====================== MANAGE DOCUMENTS ======================
-st.markdown("## 📚 Uploaded Documents")
+st.markdown("## Uploaded Documents")
 if st.session_state.pdf_files:
     for pdf_info in st.session_state.pdf_files:
         col1, col2, col3 = st.columns([3, 1, 1])
@@ -213,8 +210,8 @@ if st.session_state.pdf_files:
 else:
     st.info(" Upload PDFs to start")
 
-# ====================== INDEXING (MULTI-MODAL UPDATE) ======================
-st.markdown("##  Step 2: Index Documents (Text, Tables, Images)")
+# ====================== INDEXING ======================
+st.markdown("## Step 2: Index Documents (Text, Tables, Images)")
 
 col1, col2 = st.columns([3, 1])
 with col1:
@@ -225,18 +222,27 @@ with col1:
         disabled=len(st.session_state.pdf_files) == 0
     )
 with col2:
-    st.metric("Status", "✅ Done" if st.session_state.indexed else "⏳")
+    st.metric("Status", " Done" if st.session_state.indexed else "⏳")
 
 if index_button:
     clear_memory()
     progress_bar = st.progress(0)
     status_text = st.empty()
     
+    # Initialize LangChain Splitter
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000, 
+        chunk_overlap=200,
+        length_function=len,
+        is_separator_regex=False,
+    )
+    
     try:
         all_embeddings = []
-        page_mapping = []
+        chunk_mapping = []
         total_pages = sum(p["page_count"] for p in st.session_state.pdf_files)
         current_page = 0
+        poppler_warning_shown = False
         
         for pdf_idx, pdf_info in enumerate(st.session_state.pdf_files):
             status_text.text(f"Processing: {pdf_info['name']}...")
@@ -245,21 +251,22 @@ if index_button:
             for page_num in range(doc.page_count):
                 try:
                     page = doc[page_num]
+                    
                     # 1. Base Text Extraction
-                    text = page.get_text()
+                    page_text = page.get_text()
                     
                     # 2. Table Extraction
                     tables = page.find_tables()
                     if tables:
-                        text += "\n\n[EXTRACTED TABLES]\n"
+                        page_text += "\n\n[EXTRACTED TABLES]\n"
                         for tab in tables:
                             df = tab.to_pandas()
-                            text += df.to_markdown(index=False) + "\n\n"
+                            page_text += df.to_markdown(index=False) + "\n\n"
                     
                     # 3. Image OCR Extraction
                     image_list = page.get_images(full=True)
                     if image_list:
-                        text += "\n\n[EXTRACTED IMAGE TEXT]\n"
+                        page_text += "\n\n[EXTRACTED IMAGE TEXT]\n"
                         for img_index, img_info in enumerate(image_list):
                             xref = img_info[0]
                             base_image = doc.extract_image(xref)
@@ -267,22 +274,30 @@ if index_button:
                             
                             try:
                                 img = Image.open(io.BytesIO(image_bytes))
-                                # Run quick OCR on the image
                                 ocr_text = pytesseract.image_to_string(img).strip()
                                 if ocr_text:
-                                    text += f"Image {img_index+1}: {ocr_text}\n"
+                                    page_text += f"Image {img_index+1}: {ocr_text}\n"
+                            except PDFInfoNotInstalledError:
+                                if not poppler_warning_shown:
+                                    st.warning("⚠️ Poppler is not installed or not in PATH. OCR for complex PDFs might fail. Please check the README.")
+                                    poppler_warning_shown = True
                             except Exception as e:
                                 pass # Skip unreadable images
                     
-                    embedding = embed_page_text(text)
-                    all_embeddings.append(embedding)
+                    # 4. Smart Chunking (LangChain)
+                    chunks = text_splitter.split_text(page_text)
                     
-                    page_mapping.append({
-                        "pdf_id": pdf_info["id"],
-                        "pdf_name": pdf_info["name"],
-                        "page_num": page_num + 1,
-                        "extracted_text": text # Save full multi-modal text for LLM
-                    })
+                    for chunk_idx, chunk_text in enumerate(chunks):
+                        embedding = embed_text_chunk(chunk_text)
+                        all_embeddings.append(embedding)
+                        
+                        chunk_mapping.append({
+                            "pdf_id": pdf_info["id"],
+                            "pdf_name": pdf_info["name"],
+                            "page_num": page_num + 1,
+                            "chunk_idx": chunk_idx,
+                            "extracted_text": chunk_text 
+                        })
                     
                     current_page += 1
                     progress_bar.progress(min(current_page / total_pages, 0.99))
@@ -301,7 +316,7 @@ if index_button:
         faiss_index.add(embeddings_array)
         
         st.session_state.faiss_index = faiss_index
-        st.session_state.page_mapping = page_mapping
+        st.session_state.chunk_mapping = chunk_mapping
         
         for pdf_info in st.session_state.pdf_files:
             st.session_state.doc_cache[pdf_info["id"]] = fitz.open(pdf_info["path"])
@@ -316,8 +331,8 @@ if index_button:
         st.error(f"Indexing failed: {e}")
         st.session_state.indexed = False
 
-# ====================== QUERY & CITATION UPDATE ======================
-st.markdown("##  Step 3: Ask Questions")
+# ====================== QUERY & CITATION ======================
+st.markdown("## Step 3: Ask Questions")
 
 if not st.session_state.indexed:
     st.info("Index documents first (Step 2)")
@@ -330,15 +345,16 @@ if st.button(" Search", use_container_width=True, type="primary") and query:
         clear_memory()
         with st.spinner(" Semantic search in progress..."):
             query_embedding = embed_query(query)
-            k = min(3, len(st.session_state.page_mapping))
+            # Retrieve top 4 chunks instead of 3 pages, since chunks are smaller
+            k = min(4, len(st.session_state.chunk_mapping)) 
             distances, indices = st.session_state.faiss_index.search(
                 np.array([query_embedding]).astype('float32'), k
             )
         
         results = []
         for idx in indices[0]:
-            if 0 <= idx < len(st.session_state.page_mapping):
-                results.append(st.session_state.page_mapping[idx])
+            if 0 <= idx < len(st.session_state.chunk_mapping):
+                results.append(st.session_state.chunk_mapping[idx])
         
         if not results:
             st.warning("No results found")
@@ -347,30 +363,34 @@ if st.button(" Search", use_container_width=True, type="primary") and query:
         st.markdown("### Retrieved Context")
         context = ""
         
+        # Keep track of shown images to avoid duplicating if multiple chunks hit the same page
+        shown_pages = set() 
+        
         for i, result in enumerate(results, 1):
             pdf_id = result["pdf_id"]
             page_num = result["page_num"] - 1
             pdf_name = result["pdf_name"]
             doc = st.session_state.doc_cache[pdf_id]
             
-            # Use the augmented text (with tables and OCR) for context injection
             augmented_text = result["extracted_text"]
             
-            # Provide highly structured context tags to the LLM to force citations
-            context += f"\n\n<SOURCE id='{pdf_name} - Page {result['page_num']}'>\n{augmented_text[:1000]}\n</SOURCE>"
+            context += f"\n\n<SOURCE id='{pdf_name} - Page {result['page_num']}'>\n{augmented_text}\n</SOURCE>"
             
-            st.write(f"**#{i}. 📄 {pdf_name}** - Page {result['page_num']}")
+            st.write(f"**#{i}. 📄 {pdf_name}** - Page {result['page_num']} (Chunk {result['chunk_idx']})")
             
-            try:
-                pix = doc[page_num].get_pixmap(dpi=72)
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-                st.image(img, use_container_width=True)
-            except:
-                st.caption("(Could not render image)")
+            page_identifier = f"{pdf_id}_{page_num}"
+            if page_identifier not in shown_pages:
+                try:
+                    pix = doc[page_num].get_pixmap(dpi=72)
+                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                    st.image(img, use_container_width=True)
+                    shown_pages.add(page_identifier)
+                except:
+                    st.caption("(Could not render image)")
             st.divider()
         
-        # Generate Answer with Citation Prompts
-        st.markdown("###  Answer")
+        # Generate Answer
+        st.markdown("### Answer")
         with st.spinner(" Generating precise answer with citations..."):
             messages = [
                 {
@@ -412,23 +432,23 @@ Rules:
         with st.expander("Retrieval Details"):
             for i, (result, dist) in enumerate(zip(results, distances[0]), 1):
                 similarity = 1 - (dist / 2)
-                st.write(f"{i}. {result['pdf_name']} (Page {result['page_num']}) - Similarity: {similarity:.2%}")
+                st.write(f"{i}. {result['pdf_name']} (Page {result['page_num']}, Chunk {result['chunk_idx']}) - Similarity: {similarity:.2%}")
                 
     except Exception as e:
         st.error(f"Error: {e}")
 
 # ====================== SIDEBAR ======================
 with st.sidebar:
-    st.markdown("### ⚙️ System Info")
+    st.markdown("### System Info")
     st.write(f" PDFs: {len(st.session_state.pdf_files)}")
-    st.write(f" Pages Indexed: {len(st.session_state.page_mapping)}")
+    st.write(f" Chunks Indexed: {len(st.session_state.chunk_mapping)}")
     st.write(f" Search Model: {EMBEDDING_MODEL}")
     st.write(f" LLM: {LLM_MODEL}")
-    st.write(f"⏱ Status: {' Ready' if st.session_state.indexed else ' Not indexed'}")
+    st.write(f"Status: {' Ready' if st.session_state.indexed else ' Not indexed'}")
     
     st.divider()
     if st.button(" Clear Memory"):
-        clear_memory()
+        clear_memory() 
         st.success("Memory cleared!")
     if st.button(" Reset All"):
         reset_all_documents()
