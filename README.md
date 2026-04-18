@@ -1,10 +1,3 @@
-Here is a complete, professional `README.md` tailored exactly to your assignment's requirements and the code we just wrote. You can copy and paste this directly into your GitHub repository.
-
-It specifically highlights the system requirements (Tesseract and Poppler), which is crucial so your grader doesn't run into errors when testing the multi-modal features!
-
-***
-
-```markdown
 # 📄 Multi-Modal Document Intelligence (RAG-Based QA System)
 
 This repository contains a robust, multi-modal Retrieval-Augmented Generation (RAG) system built to parse and extract insights from complex documents. Unlike traditional text-only RAG pipelines, this system intelligently processes **text, tables, and scanned images (via OCR)** to provide highly accurate, citation-backed answers.
