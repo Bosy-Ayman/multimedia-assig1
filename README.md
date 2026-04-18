@@ -1,8 +1,8 @@
-# 📄 Multi-Modal Document Intelligence (RAG-Based QA System)
+# Multi-Modal Document Intelligence (RAG-Based QA System)
 
 This repository contains a robust, multi-modal Retrieval-Augmented Generation (RAG) system built to parse and extract insights from complex documents. Unlike traditional text-only RAG pipelines, this system intelligently processes **text, tables, and scanned images (via OCR)** to provide highly accurate, citation-backed answers.
 
-## ✨ Features
+##  Features
 
 * **Multi-Modal Ingestion:** Extracts standard text, parses tables into Markdown formats, and runs OCR on embedded images using PyMuPDF and Tesseract.
 * **Smart Semantic Chunking:** Utilizes LangChain's `RecursiveCharacterTextSplitter` to segment dense pages intelligently, preserving context without exceeding embedding limits.
@@ -12,7 +12,7 @@ This repository contains a robust, multi-modal Retrieval-Augmented Generation (R
 
 ---
 
-## ⚙️ System Requirements
+##  System Requirements
 
 To utilize the image extraction and OCR capabilities, you **must** install the following system dependencies alongside the Python packages.
 
@@ -30,7 +30,7 @@ Required by `pdf2image` for robust PDF-to-image conversion during fallback proce
 
 ---
 
-## 🚀 Installation & Setup
+## Installation & Setup
 
 **1. Clone the repository**
 ```bash
