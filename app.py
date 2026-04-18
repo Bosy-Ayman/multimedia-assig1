@@ -33,7 +33,6 @@ import faiss
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from sentence_transformers import SentenceTransformer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 warnings.filterwarnings("ignore")
 
 # ========================== CONFIG ==========================
