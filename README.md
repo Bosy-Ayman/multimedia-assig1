@@ -70,7 +70,7 @@ streamlit run app.py
 
 ---
 
-## 📂 Repository Structure
+##  Repository Structure
 
 ```text
 ├── app.py                 # Main Streamlit application and RAG pipeline
