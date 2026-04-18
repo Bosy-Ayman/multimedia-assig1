@@ -34,8 +34,8 @@ Required by `pdf2image` for robust PDF-to-image conversion during fallback proce
 
 **1. Clone the repository**
 ```bash
-git clone <your-repo-url>
-cd <your-repo-name>
+git clone <Bosy-Ayman/multimedia-assig1>
+cd <Bosy-Ayman/multimedia-assig1>
 ```
 
 **2. Create and activate a virtual environment**
@@ -79,12 +79,3 @@ streamlit run app.py
 ├── README.md              # Project documentation
 └── sample_data/           # Directory containing test PDFs for multi-modal evaluation
 ```
-```
-
-***
-
-### Next Steps
-With the README done, your final tasks are:
-1.  **Write the 2-page Tech Report** summarizing the architecture.
-2.  **Record the 2-5 minute video** showing it in action.
-3.  **Write the `evaluate.py` script** (Let me know if you want me to write this out for you to finish off the coding portion!).
