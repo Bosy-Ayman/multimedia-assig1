@@ -77,4 +77,7 @@ streamlit run app.py
 ├── requirements.txt       # Python package dependencies
 ├── README.md              # Project documentation
 └── sample_data/           # Directory containing test PDFs for multi-modal evaluation
-```
+``` 
+
+## Video demo
+[![▶ Watch Demo](thumbnail.png)](https://drive.google.com/file/d/1Tjqc86HEHlYHbMCuErXh2vZJEjLlwKnk/view?usp=sharing)
