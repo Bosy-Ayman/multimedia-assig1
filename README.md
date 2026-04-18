@@ -81,3 +81,8 @@ streamlit run app.py
 
 ## Video demo
 [![▶ Watch Demo](thumbnail.png)](https://drive.google.com/file/d/1Tjqc86HEHlYHbMCuErXh2vZJEjLlwKnk/view?usp=sharing)
+## Report
+
+[![▶ Report](thumbnail.png)](https://docs.google.com/document/d/1SlcVZAVkUN1HWtqqbf4SQbqWi2AB25TAJo8kr3obT-A/edit?usp=sharing)
+
+
