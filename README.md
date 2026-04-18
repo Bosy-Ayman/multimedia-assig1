@@ -15,4 +15,6 @@ Local, private RAG application that handles text, tables, and images from PDFs.
 2. Install Poppler and Tesseract (Windows paths already handled)
 3. `streamlit run app.py`
 
-## Video Demo
+## 🎥 Demo Video
+
+[![▶ Watch Demo](thumbnail.png)](https://drive.google.com/file/d/1Tjqc86HEHlYHbMCuErXh2vZJEjLlwKnk/view?usp=sharing)
